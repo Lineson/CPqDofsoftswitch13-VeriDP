@@ -48,6 +48,9 @@
 #include "oflib/oxm-match.h"
 #include "hash.h"
 
+#include "veridp.c"
+
+
 #define LOG_MODULE VLM_dp_acts
 
 static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 60);
@@ -58,6 +61,7 @@ static struct vlog_rate_limit rl = VLOG_RATE_LIMIT_INIT(60, 60);
  * that any internal pointers of the handler structures are also updated, or
  * invalidated.
  */
+
 
 /* Executes an output action. */
 static void
@@ -94,8 +98,10 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 break;
             }
             case OXM_OF_ETH_TYPE:{
-                uint16_t v = *((uint16_t*) act->field->value);
-                pkt->handle_std->proto->eth->eth_type = htons(v);
+                uint16_t *v = (uint16_t*) act->field->value;
+                *v = htons(*v);
+                memcpy(&pkt->handle_std->proto->eth->eth_type,
+                    v, OXM_LENGTH(act->field->header));
                 break;
             }
             case OXM_OF_VLAN_VID:{
@@ -103,7 +109,8 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 /* VLAN existence is no guaranteed by match prerquisite*/
                 if(vlan != NULL){
                     uint16_t v = (*(uint16_t*)act->field->value);
-                    vlan->vlan_tci = htons((ntohs(vlan->vlan_tci) & ~VLAN_VID_MASK) | (v & VLAN_VID_MASK));
+                    vlan->vlan_tci = htons((ntohs(vlan->vlan_tci) & ~VLAN_VID_MASK)
+                                                    | (v & VLAN_VID_MASK));
                 }
                 break;
             }
@@ -168,16 +175,13 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 /*Reconstruct TCP or UDP checksum*/
                 if (pkt->handle_std->proto->tcp != NULL) {
                     struct tcp_header *tcp = pkt->handle_std->proto->tcp;
-                    tcp->tcp_csum = recalc_csum32(tcp->tcp_csum,
-                        ipv4->ip_src, *((uint32_t*) act->field->value));
+                    tcp->tcp_csum = recalc_csum32(tcp->tcp_csum, ipv4->ip_src, *((uint32_t*) act->field->value));
                 } else if (pkt->handle_std->proto->udp != NULL) {
                     struct udp_header *udp = pkt->handle_std->proto->udp;
-                    udp->udp_csum = recalc_csum32(udp->udp_csum,
-                        ipv4->ip_src, *((uint32_t*) act->field->value));
+                    udp->udp_csum = recalc_csum32(udp->udp_csum, ipv4->ip_src, *((uint32_t*) act->field->value));
                 }
 
-                ipv4->ip_csum = recalc_csum32(ipv4->ip_csum, ipv4->ip_src,
-                                     *((uint32_t*) act->field->value));
+                ipv4->ip_csum = recalc_csum32(ipv4->ip_csum, ipv4->ip_src, *((uint32_t*) act->field->value));
 
                 ipv4->ip_src = *((uint32_t*) act->field->value);
                 break;
@@ -188,16 +192,13 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 /*Reconstruct TCP or UDP checksum*/
                 if (pkt->handle_std->proto->tcp != NULL) {
                     struct tcp_header *tcp = pkt->handle_std->proto->tcp;
-                    tcp->tcp_csum = recalc_csum32(tcp->tcp_csum,
-                        ipv4->ip_dst, *((uint32_t*) act->field->value));
+                    tcp->tcp_csum = recalc_csum32(tcp->tcp_csum, ipv4->ip_dst, *((uint32_t*) act->field->value));
                 } else if (pkt->handle_std->proto->udp != NULL) {
                     struct udp_header *udp = pkt->handle_std->proto->udp;
-                    udp->udp_csum = recalc_csum32(udp->udp_csum,
-                        ipv4->ip_dst, *((uint32_t*) act->field->value));
+                    udp->udp_csum = recalc_csum32(udp->udp_csum, ipv4->ip_dst, *((uint32_t*) act->field->value));
                 }
 
-                ipv4->ip_csum = recalc_csum32(ipv4->ip_csum, ipv4->ip_dst,
-                                    *((uint32_t*) act->field->value));
+                ipv4->ip_csum = recalc_csum32(ipv4->ip_csum, ipv4->ip_dst, *((uint32_t*) act->field->value));
 
                 ipv4->ip_dst = *((uint32_t*) act->field->value);
                 break;
@@ -206,28 +207,29 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 struct tcp_header *tcp = pkt->handle_std->proto->tcp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
                 tcp->tcp_csum = recalc_csum16(tcp->tcp_csum, tcp->tcp_src, v);
-                tcp->tcp_src = v;
+                memcpy(&tcp->tcp_src, &v, OXM_LENGTH(act->field->header));
                 break;
             }
             case OXM_OF_TCP_DST:{
                 struct tcp_header *tcp = pkt->handle_std->proto->tcp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
                 tcp->tcp_csum = recalc_csum16(tcp->tcp_csum, tcp->tcp_dst, v);
-                tcp->tcp_dst = v;
+                memcpy(&tcp->tcp_dst, &v, OXM_LENGTH(act->field->header));
                 break;
             }
             case OXM_OF_UDP_SRC:{
                 struct udp_header *udp = pkt->handle_std->proto->udp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
                 udp->udp_csum = recalc_csum16(udp->udp_csum, udp->udp_src, v);
-                udp->udp_src = v;
+                memcpy(&udp->udp_src, &v, OXM_LENGTH(act->field->header));
+
                 break;
             }
             case OXM_OF_UDP_DST:{
                 struct udp_header *udp = pkt->handle_std->proto->udp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
                 udp->udp_csum = recalc_csum16(udp->udp_csum, udp->udp_dst, v);
-                udp->udp_dst = v;
+                memcpy(&udp->udp_dst, &v, OXM_LENGTH(act->field->header));
                 break;
             }
             /*TODO recalculate SCTP checksum*/
@@ -237,7 +239,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 size_t len = ((uint8_t*) ofpbuf_tail(pkt->handle_std->pkt->buffer)) - (uint8_t *) sctp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
                 sctp->sctp_csum = 0;
-                sctp->sctp_src = v;
+                memcpy(&sctp->sctp_src, &v, OXM_LENGTH(act->field->header));
                 crc = crc_init();
                 crc = crc_update(crc, (unsigned char*)sctp, len);                            
                 crc = crc_finalize(crc);
@@ -250,7 +252,7 @@ set_field(struct packet *pkt, struct ofl_action_set_field *act )
                 size_t len = ((uint8_t*) ofpbuf_tail(pkt->handle_std->pkt->buffer)) - (uint8_t *) sctp;
                 uint16_t v = htons(*(uint16_t*) act->field->value);
                 sctp->sctp_csum = 0;
-                sctp->sctp_dst = v;
+                memcpy(&sctp->sctp_dst, &v, OXM_LENGTH(act->field->header));
                 crc = crc_init();
                 crc = crc_update(crc, (unsigned char*)sctp, len);                            
                 crc = crc_finalize(crc);
@@ -1019,7 +1021,7 @@ dp_execute_action(struct packet *pkt,
             break;
         }
         case (OFPAT_EXPERIMENTER): {
-        	dp_exp_action(pkt, (struct ofl_action_experimenter *)action);
+            dp_exp_action(pkt, (struct ofl_action_experimenter *)action);
             break;
         }
 
@@ -1055,7 +1057,7 @@ dp_execute_action_list(struct packet *pkt,
             /* The group must process a copy of the packet in the current state,
              * so that when we return we continue processing an unmodified
              * version of the packet. The group must also ignore the current
-	     * action-set. We need to clone the packet with an empty
+         * action-set. We need to clone the packet with an empty
              * action-set. Jean II */
             pkt_clone = packet_clone(pkt);
             group_table_execute(pkt_clone->dp->groups, pkt_clone, group);
@@ -1138,6 +1140,11 @@ dp_actions_output_port(struct packet *pkt, uint32_t out_port, uint32_t out_queue
                 VLOG_WARN_RL(LOG_MODULE, &rl, "can't directly forward to input port.");
             } else {
                 VLOG_DBG_RL(LOG_MODULE, &rl, "Outputting packet on port %u.", out_port);
+                
+ 
+                veridp_mudule(pkt, out_port);
+ 
+
                 dp_ports_output(pkt->dp, pkt->buffer, out_port, out_queue);
             }
         }
@@ -1223,4 +1230,3 @@ dp_actions_check_set_field_req(struct ofl_msg_flow_mod *msg, size_t actions_num,
     }
     return 0;
 }
-
